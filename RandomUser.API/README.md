@@ -32,7 +32,7 @@ A aplicação é uma Web API construída em ASP.NET Core 7.0, que consome uma AP
 
 ```
 
-git clone [https://github.com/seu-usuario/RandomUser.API.git](https://github.com/seu-usuario/RandomUser.API.git)
+git clone https://github.com/MatheusMoroRuiz/RandomUser.API.git
 cd RandomUser.API
 
 ````
