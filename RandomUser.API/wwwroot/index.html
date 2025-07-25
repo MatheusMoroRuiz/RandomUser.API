@@ -1,0 +1,352 @@
+﻿<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Relatório de Usuários</title>
+
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet" />
+
+    <style>
+        td, th {
+            word-break: break-word;
+        }
+
+        @media (max-width: 576px) {
+            h1 {
+                font-size: 1.5rem;
+                text-align: center;
+            }
+
+            .table th, .table td {
+                font-size: 0.9rem;
+                padding: 0.5rem;
+            }
+        }
+
+        th.ordenavel:hover {
+            cursor: pointer;
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body class="bg-light">
+
+    <div class="container-fluid px-3 px-md-5 py-4">
+        <h1 class="mb-4 text-center">Relatório de Usuários</h1>
+
+        <div class="mb-3 row">
+            <div class="col-sm-8">
+                <input type="text" class="form-control" id="pesquisa" placeholder="Buscar por nome ou e-mail...">
+            </div>
+            <div class="col-sm-2">
+                <button class="btn btn-primary w-100" id="btnPesquisar">Pesquisar</button>
+            </div>
+            <div class="col-sm-2 mt-2 mt-sm-0">
+                <button class="btn btn-success w-100" id="btnExportarCSV">Exportar CSV</button>
+            </div>
+        </div>
+
+        <div class="table-responsive">
+            <table class="table table-bordered table-striped align-middle mb-0">
+                <thead class="table-dark">
+                    <tr>
+                        <th class="ordenavel" data-chave="nome">Nome</th>
+                        <th class="ordenavel" data-chave="email">Email</th>
+                        <th class="ordenavel" data-chave="genero">Gênero</th>
+                        <th class="ordenavel" data-chave="pais">País</th>
+                        <th>Ações</th>
+                    </tr>
+                </thead>
+                <tbody id="corpoTabelaUsuarios">
+                    <tr>
+                        <td colspan="5" class="text-center">Carregando...</td>
+                    </tr>
+                </tbody>
+            </table>
+            <div id="paginacao" class="d-flex justify-content-center mt-3"></div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="modalExcluir" tabindex="-1" aria-labelledby="tituloModalExcluir" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header bg-danger text-white">
+                    <h5 class="modal-title" id="tituloModalExcluir">Confirmar Exclusão</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    Tem certeza que deseja excluir este usuário?
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button class="btn btn-danger" id="btnConfirmarExcluir">Excluir</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+    <script>
+        const api = "https://localhost:7093/api/Users";
+        let usuarios = [];
+        let paginaAtual = 1;
+        const porPagina = 30;
+        let campoOrdenacao = null;
+        let direcaoOrdenacao = 'asc';
+
+        function emailValido(email) {
+            return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+        }
+
+
+        function mostrarFeedback(botao, sucesso) {
+            botao.disabled = true;
+            botao.textContent = sucesso ? "✔" : "Erro";
+            botao.classList.remove("btn-success", "btn-danger");
+            botao.classList.add(sucesso ? "btn-success" : "btn-danger");
+
+            setTimeout(() => {
+                botao.textContent = "Salvar";
+                botao.disabled = false;
+            }, 1500);
+        }
+
+        function carregarUsuarios() {
+            fetch(api)
+                .then(res => res.json())
+                .then(data => {
+                    usuarios = data;
+                    desenharTabela(data, paginaAtual);
+                })
+                .catch(() => {
+                    document.getElementById("corpoTabelaUsuarios").innerHTML = `
+                            <tr><td colspan="5" class="text-center text-danger">Erro ao carregar usuários.</td></tr>`;
+                });
+        }
+
+        function desenharTabela(lista, pagina) {
+            const corpo = document.getElementById("corpoTabelaUsuarios");
+            corpo.innerHTML = "";
+
+            const inicio = (pagina - 1) * porPagina;
+            const fim = inicio + porPagina;
+            const usuariosPagina = lista.slice(inicio, fim);
+
+            if (usuariosPagina.length === 0) {
+                corpo.innerHTML = `
+                        <tr><td colspan="5" class="text-center text-muted">Nenhum usuário encontrado.</td></tr>`;
+                desenharPaginacao([], pagina);
+                return;
+            }
+
+            usuariosPagina.forEach(usuario => {
+                const linha = document.createElement("tr");
+                linha.innerHTML = `
+                        <td contenteditable="true">${usuario.name}</td>
+                        <td contenteditable="true">${usuario.email}</td>
+                        <td contenteditable="true">${usuario.gender}</td>
+                        <td contenteditable="true">${usuario.country}</td>
+                        <td class="text-center">
+                            <button class="btn btn-sm btn-success btn-salvar" data-id="${usuario.id}">Salvar</button>
+                            <button class="btn btn-sm btn-danger btn-excluir" data-id="${usuario.id}">Excluir</button>
+                        </td>`;
+                corpo.appendChild(linha);
+            });
+
+            adicionarEventosSalvar();
+            adicionarEventosExcluir();
+            desenharPaginacao(lista, pagina);
+        }
+
+        function desenharPaginacao(lista, paginaAtual) {
+            const container = document.getElementById("paginacao");
+            container.innerHTML = "";
+
+            const totalPaginas = Math.ceil(lista.length / porPagina);
+            if (totalPaginas <= 1) return;
+
+            const ul = document.createElement("ul");
+            ul.classList.add("pagination");
+
+            const anterior = document.createElement("li");
+            anterior.className = `page-item ${paginaAtual === 1 ? 'disabled' : ''}`;
+            anterior.innerHTML = `<button class="page-link">Anterior</button>`;
+            anterior.addEventListener("click", () => {
+                if (paginaAtual > 1) desenharTabela(usuarios, paginaAtual - 1);
+            });
+            ul.appendChild(anterior);
+
+            for (let i = 1; i <= totalPaginas; i++) {
+                const li = document.createElement("li");
+                li.className = `page-item ${i === paginaAtual ? 'active' : ''}`;
+                li.innerHTML = `<button class="page-link">${i}</button>`;
+                li.addEventListener("click", () => desenharTabela(usuarios, i));
+                ul.appendChild(li);
+            }
+
+            const proxima = document.createElement("li");
+            proxima.className = `page-item ${paginaAtual === totalPaginas ? 'disabled' : ''}`;
+            proxima.innerHTML = `<button class="page-link">Próxima</button>`;
+            proxima.addEventListener("click", () => {
+                if (paginaAtual < totalPaginas) desenharTabela(usuarios, paginaAtual + 1);
+            });
+            ul.appendChild(proxima);
+
+            container.appendChild(ul);
+        }
+
+        function adicionarEventosSalvar() {
+            document.querySelectorAll(".btn-salvar").forEach(botao => {
+                botao.addEventListener("click", () => {
+                    const linha = botao.closest("tr");
+                    const id = botao.dataset.id;
+
+                    const nome = linha.children[0].innerText.trim();
+                    const email = linha.children[1].innerText.trim();
+                    const genero = linha.children[2].innerText.trim();
+                    const pais = linha.children[3].innerText.trim();
+
+                    [...linha.children].forEach(td => td.classList.remove("border", "border-danger"));
+                    let erros = [];
+
+                    if (!nome) {
+                        linha.children[0].classList.add("border", "border-danger");
+                        erros.push("Nome é obrigatório.");
+                    }
+                    if (!emailValido(email)) {
+                        linha.children[1].classList.add("border", "border-danger");
+                        erros.push("E-mail inválido.");
+                    }
+                    if (!genero) {
+                        linha.children[2].classList.add("border", "border-danger");
+                        erros.push("Gênero é obrigatório.");
+                    }
+                    if (!pais) {
+                        linha.children[3].classList.add("border", "border-danger");
+                        erros.push("País é obrigatório.");
+                    }
+
+                    if (erros.length > 0) {
+                        alert("Erro ao salvar:\n\n" + erros.join("\n"));
+                        mostrarFeedback(botao, false);
+                        return;
+                    }
+
+                    fetch(`${api}/${id}`, {
+                        method: "PUT",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ id: parseInt(id), name: nome, email, gender: genero, country: pais })
+                    })
+                        .then(res => {
+                            mostrarFeedback(botao, res.ok);
+                            if (!res.ok) alert("Erro ao atualizar usuário.");
+                        })
+                        .catch(() => {
+                            mostrarFeedback(botao, false);
+                            alert("Erro de rede ao tentar salvar.");
+                        });
+                });
+            });
+        }
+
+        function adicionarEventosExcluir() {
+            document.querySelectorAll(".btn-excluir").forEach(botao => {
+                botao.addEventListener("click", () => {
+                    const id = botao.dataset.id;
+                    const confirmado = confirm("Tem certeza que deseja excluir este usuário?");
+                    if (!confirmado) return;
+
+                    fetch(`${api}/${id}`, { method: "DELETE" })
+                        .then(res => {
+                            if (res.ok) carregarUsuarios();
+                            else alert("Erro ao excluir usuário.");
+                        })
+                        .catch(() => alert("Erro de rede ao excluir."));
+                });
+            });
+        }
+
+        function aplicarPesquisa(termo) {
+            const filtrados = usuarios.filter(u =>
+                u.name.toLowerCase().includes(termo.toLowerCase()) ||
+                u.email.toLowerCase().includes(termo.toLowerCase())
+            );
+            desenharTabela(filtrados, 1);
+        }
+
+        function ordenarTabelaPor(campo) {
+            if (campoOrdenacao === campo) {
+                direcaoOrdenacao = direcaoOrdenacao === "asc" ? "desc" : "asc";
+            } else {
+                campoOrdenacao = campo;
+                direcaoOrdenacao = "asc";
+            }
+
+            const ordenados = [...usuarios].sort((a, b) => {
+                const valA = a[campo].toLowerCase();
+                const valB = b[campo].toLowerCase();
+                return direcaoOrdenacao === "asc" ? valA.localeCompare(valB) : valB.localeCompare(valA);
+            });
+
+            desenharTabela(ordenados, 1);
+        }
+
+        function exportarCSV(lista) {
+            if (!lista.length) {
+                alert("Nenhum usuário para exportar.");
+                return;
+            }
+
+            const cabecalho = ["Nome", "Email", "Gênero", "País"];
+            const linhas = lista.map(u => [u.name, u.email, u.gender, u.country]);
+            let csv = cabecalho.join(";") + "\n" + linhas.map(l => l.map(v => `"${v}"`).join(";")).join("\n");
+
+            const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
+            const link = document.createElement("a");
+            link.href = URL.createObjectURL(blob);
+            link.download = "usuarios.csv";
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        document.addEventListener("DOMContentLoaded", () => {
+            carregarUsuarios();
+
+            document.getElementById("pesquisa").addEventListener("input", e => {
+                aplicarPesquisa(e.target.value.trim());
+            });
+
+            document.getElementById("btnExportarCSV").addEventListener("click", () => {
+                const linhas = document.querySelectorAll("#corpoTabelaUsuarios tr");
+                const usuariosVisiveis = Array.from(linhas).map(l => {
+                    const celulas = l.querySelectorAll("td");
+                    return {
+                        name: celulas[0]?.innerText.trim(),
+                        email: celulas[1]?.innerText.trim(),
+                        gender: celulas[2]?.innerText.trim(),
+                        country: celulas[3]?.innerText.trim()
+                    };
+                }).filter(u => u.name && u.email && u.gender && u.country);
+
+                exportarCSV(usuariosVisiveis);
+            });
+
+            document.querySelectorAll("thead th").forEach(th => {
+                th.addEventListener("click", () => {
+                    const campoMap = {
+                        "Nome": "name",
+                        "Email": "email",
+                        "Gênero": "gender",
+                        "País": "country"
+                    };
+                    const campo = campoMap[th.textContent.trim()];
+                    if (campo) ordenarTabelaPor(campo);
+                });
+            });
+        });
+    </script>
+</body>
+</html>
